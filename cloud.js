@@ -1,0 +1,48 @@
+'use strict';
+(()=>{
+ const config=window.KCEM_CLOUD_CONFIG||{},$=id=>document.getElementById(id);
+ let token='',snapshot=null,revision=0,queue=Promise.resolve();
+ async function request(path,body){
+  if(!config.supabaseUrl||!config.publishableKey)throw new Error('config.js에 기존 Supabase URL과 공개 키를 입력하세요.');
+  const headers={apikey:config.publishableKey,'Content-Type':'application/json'};if(token)headers.Authorization='Bearer '+token;
+  const r=await fetch(config.supabaseUrl.replace(/\/$/,'')+path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body)});
+  const data=await r.json();if(!r.ok)throw new Error(data.message||data.msg||data.error_description||'DB 요청 실패');return data;
+ }
+ function enqueue(action){const job=queue.catch(()=>{}).then(action);queue=job;return job;}
+ async function load(){const rows=await request('/rest/v1/kcem_craft_draft?id=eq.1&select=revision,payload');revision=rows[0]?.revision||0;snapshot=rows[0]?.payload||null;}
+ async function commit(next){const result=await request('/rest/v1/rpc/kcem_craft_commit',{expected_revision:revision,new_payload:next});revision=result;snapshot=next;return result;}
+ function download(value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='craft-export.json';a.click();URL.revokeObjectURL(url);}
+ window.KCEM_CLOUD_API=async(path,opt)=>{
+  if(path.endsWith('/open-storage')){await queue;download(window.KCEM_EDITOR_EXPORT?window.KCEM_EDITOR_EXPORT():snapshot);return {ok:true};}
+  if(!snapshot?.records?.length)throw new Error('최초 이관 파일을 선택한 뒤 화면을 새로고침하세요.');
+  if(path.endsWith('/health'))return {ok:true,serverVersion:'v63',programCount:snapshot.records.length};
+  if(path.endsWith('/data'))return {...snapshot,ok:true,serverVersion:'v63',revision,programCount:snapshot.records.length};
+  const body=JSON.parse(opt?.body||'{}');
+  if(path.endsWith('/save'))return enqueue(async()=>{
+   const next=structuredClone(snapshot),row=next.records.find(x=>x.program.tid===body.tid);if(!row)throw new Error('TID 없음');
+   Object.assign(row.recommendation,body.recommendation,{tid:body.tid,updatedAt:new Date().toISOString()});
+   if(next.master){next.master.records ||= {};next.master.records[body.tid]=structuredClone(row.recommendation);}
+   await commit(next);return {ok:true,revision,saved:row.recommendation};
+  });
+  if(path.endsWith('/material'))return enqueue(async()=>{
+   const name=String(body.name||'').trim(),n=Number(body.difficulty);if(!name||name.length>40||!Number.isInteger(n)||n<1||n>5)throw new Error('재료 난이도는 1~5입니다.');
+   const next=structuredClone(snapshot);next.materials ||= {};next.materials[name]={difficulty:n};next.tagCatalog ||= {};next.tagCatalog.materialTags=[...new Set([...(next.tagCatalog.materialTags||[]),name])];
+   if(next.master)next.master.materials=structuredClone(next.materials);
+   await commit(next);return {ok:true,revision};
+  });
+  throw new Error('지원되지 않는 요청');
+ };
+ $('signIn').onclick=async()=>{try{
+  $('loginStatus').textContent='로그인 중...';const auth=await request('/auth/v1/token?grant_type=password',{email:$('email').value,password:$('password').value});token=auth.access_token;$('password').value='';
+  await load();$('login').hidden=true;$('app').hidden=false;
+  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js';script.dataset.editor='1';document.body.append(script);}
+ }catch(e){$('loginStatus').textContent=e.message;}};
+ $('signOut').onclick=()=>location.reload();
+ $('importFile').onchange=async()=>{try{
+  const next=JSON.parse(await $('importFile').files[0].text());
+  if(!next.records?.length||next.records.some(x=>!x.program?.tid||!x.recommendation))throw new Error('올바른 이관 파일이 아닙니다.');
+  if(snapshot?.records?.length)throw new Error('이미 이관된 DB는 덮어쓸 수 없습니다. 웹 에디터에서 수정하세요.');
+  next.materials ||= next.master?.materials||{};await enqueue(()=>commit(next));alert('이관 완료. 다시 로그인하면 목록이 표시됩니다.');
+ }catch(e){alert(e.message);}};
+ $('publish').onclick=async()=>{try{await enqueue(()=>request('/rest/v1/rpc/kcem_craft_publish',{expected_revision:revision}));alert('게시 완료. 키오스크 시작 또는 수동 동기화 시 반영됩니다.');}catch(e){alert(e.message);}};
+})();
