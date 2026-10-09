@@ -123,8 +123,8 @@ function refreshDirty(){state.dirty=state.rows.some(row=>version(row)>(savedVers
 function markManual(k){const row=current(),rec=row.recommendation;if(k!=='notes')rec[srcKey(k)]='manual';rec.reviewStatus='editing';editVersions.set(row,version(row)+1);refreshDirty();}
 let timer=null,saveChain=Promise.resolve();
 function scheduleSave(){clearTimeout(timer);timer=setTimeout(()=>save(false),700)}
-function save(show=true){
- clearTimeout(timer);const row=current();if(!row)return Promise.resolve(true);
+function save(show=true,targetRow=null){
+ clearTimeout(timer);const row=targetRow||current();if(!row)return Promise.resolve(true);
  const tid=row.program.tid;
  saveChain=saveChain.catch(()=>false).then(async()=>{
   // Snapshot when this queued request starts, not while older requests run.
@@ -165,6 +165,7 @@ function cycleChoice(delta){const d=defs[state.active],rec=current().recommendat
 function toggleCurrentTag(){const d=defs[state.active],rec=current().recommendation;if(d.type!=='tags')return false;const cat=state.catalog[d.key]||[];if(!cat.length)return false;const ix=Math.max(0,Math.min(cat.length-1,state.optionCursor[d.key]??0)),v=cat[ix];rec[d.key]=Array.isArray(rec[d.key])?rec[d.key]:[];const pos=rec[d.key].indexOf(v);pos>=0?rec[d.key].splice(pos,1):rec[d.key].push(v);markManual(d.key);renderFields(rec);focusField(state.active,false);scheduleSave();return true}
 function quickNumber(n){const d=defs[state.active],rec=current().recommendation;if(d.type==='choice'&&d.choices[n-1]!=null){rec[d.key]=d.choices[n-1]}else if(d.type==='bool'&&n<=2){rec[d.key]=n===1}else if(d.type==='tags'){const cat=state.catalog[d.key]||[];if(cat[n-1]==null)return false;rec[d.key]=Array.isArray(rec[d.key])?rec[d.key]:[];const v=cat[n-1],ix=rec[d.key].indexOf(v);ix>=0?rec[d.key].splice(ix,1):rec[d.key].push(v)}else return false;markManual(d.key);renderFields(rec);focusField(state.active,false);scheduleSave();return true}
 document.addEventListener('keydown',async e=>{if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();await moveCard(e.shiftKey?-1:1);return}const target=e.target,typing=target.matches('input, textarea');if(e.key==='Enter'&&!e.ctrlKey){e.preventDefault();if(typing)target.blur();nextMissing();return}if(e.key==='ArrowUp'&&!typing){e.preventDefault();focusField(state.active-1);return}if(e.key==='ArrowDown'&&!typing){e.preventDefault();focusField(state.active+1);return}if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!typing){if(cycleChoice(e.key==='ArrowRight'?1:-1)){e.preventDefault();return}}if(e.key===' '&&!typing){if(toggleCurrentTag()){e.preventDefault();return}}if(!typing&&/^[1-9]$/.test(e.key)){if(quickNumber(Number(e.key)))e.preventDefault()}});
+window.KCEM_EDITOR_SAVE_PENDING=async()=>{for(const row of state.rows){while(version(row)>(savedVersions.get(row)||0)){if(!await save(false,row))return false;}}return true;};
 window.KCEM_EDITOR_EXPORT=()=>({...window.KCEM_EDITOR_BASE,records:structuredClone(state.rows),materials:structuredClone(state.materials||{}),tagCatalog:structuredClone(state.catalog)});
 $('#prev').onclick=()=>moveCard(-1);$('#next').onclick=()=>moveCard(1);$('#save').onclick=()=>save(true);$('#filterMissing').onclick=()=>{state.missingOnly=!state.missingOnly;$('#filterMissing').classList.toggle('on',state.missingOnly);normalizeView();render()};$('#openStorage').onclick=()=>api('/api/recommendation/open-storage');window.addEventListener('beforeunload',e=>{if(state.dirty){e.preventDefault();e.returnValue=''}});load();
 })();
