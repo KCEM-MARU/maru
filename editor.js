@@ -70,7 +70,7 @@ async function load(){
 function setSave(t,err=false){$('#saveState').textContent=t;$('#saveState').style.color=err?'#ff7878':'#9bd3a7'}
 function coverCandidates(p){
  const tid=p.tid,raw=p.image||'',resolved=p.coverPath||'',ver=p.coverVersion||58;
- const arr=[];
+ const arr=[`assets/programs/cover/${encodeURIComponent(tid)}.webp?v=81`];
  if(resolved)arr.push(`${resolved}?m=${ver}`);
  arr.push(`assets/programs/cover/${tid}.png?v=63`,`assets/programs/cover/${tid}.jpg?v=63`);
  if(raw)arr.push(`${raw}?v=63`);

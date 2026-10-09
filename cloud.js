@@ -35,7 +35,7 @@
  $('signIn').onclick=async()=>{try{
   $('loginStatus').textContent='로그인 중...';const auth=await request('/auth/v1/token?grant_type=password',{email:$('email').value,password:$('password').value});token=auth.access_token;$('password').value='';
   await load();$('login').hidden=true;$('app').hidden=false;
-  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js';script.dataset.editor='1';document.body.append(script);}
+  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js?v=81';script.dataset.editor='1';document.body.append(script);}
  }catch(e){$('loginStatus').textContent=e.message;}};
  $('signOut').onclick=()=>location.reload();
  $('importFile').onchange=async()=>{try{
