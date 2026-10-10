@@ -57,6 +57,23 @@ function isMissingValue(v,d){if(!d.required)return false;if(d.type==='tags')retu
 function missingDefs(rec){return defs.filter(d=>d.required&&isMissingValue(rec[d.key],d))}
 function current(){return state.view[state.index]||state.rows[0]}
 function normalizeView(){const curTid=current()?.program?.tid;state.view=state.missingOnly?state.rows.filter(x=>missingDefs(x.recommendation).length):state.rows.slice();let idx=state.view.findIndex(x=>x.program.tid===curTid);state.index=Math.max(0,idx>=0?idx:0)}
+
+function progressKey(){return 'KCEM_EDITOR_PROGRESS_V1:'+String(window.KCEM_EDITOR_ACCOUNT||window.KCEM_CLOUD_CONFIG?.supabaseUrl||'local')+':'+location.pathname;}
+function rememberProgress(tid,fieldKey){
+ try{localStorage.setItem(progressKey(),JSON.stringify({tid,fieldKey,savedAt:new Date().toISOString()}));}catch(_){}
+}
+function restoreProgress(){
+ try{
+  const p=JSON.parse(localStorage.getItem(progressKey())||'null');
+  if(!p||typeof p.tid!=='string')return -1;
+  const index=state.view.findIndex(row=>row.program.tid===p.tid);
+  if(index<0)return -1;
+  state.index=index;
+  const field=defs.findIndex(d=>d.key===p.fieldKey);
+  return field>=0?field:0;
+ }catch(_){return -1;}
+}
+
 async function api(path,opt){
  if(window.KCEM_CLOUD_API)return window.KCEM_CLOUD_API(path,opt);
  const sep=path.includes('?')?'&':'?';const expectedInstance=new URLSearchParams(location.search).get('instance')||'';const url=path+sep+'_v=79&_ts='+Date.now()+(expectedInstance?'&instance='+encodeURIComponent(expectedInstance):'');
@@ -84,9 +101,9 @@ async function load(){
    const serverCount=Number(d.programCount);
    if(Number.isFinite(serverCount)&&serverCount!==state.rows.length)throw new Error(`SERVER ${serverCount} / UI ${state.rows.length} 데이터 개수가 다릅니다.`);
    if(!state.rows.length)throw new Error(`프로그램 0개 · Source: ${d.programSource||'없음'}`);
-   normalizeView();render();
+   normalizeView();const resumedField=restoreProgress();render();if(resumedField>=0)focusField(resumedField,false);
    setDiag(`${d.serverVersion||'server ?'} · SERVER ${serverCount||state.rows.length} · UI ${state.rows.length} · COVER ${d.coverCount??'?'}`);
-   setSave(`TABLE R${state.revision} · 자동저장 준비`);
+   setSave(`TABLE R${state.revision} · ${resumedField>=0?'이전 저장 위치에서 이어서 편집':'자동저장 준비'}`);
  }catch(e){
    state.rows=[];state.view=[];
    $('#counter').textContent='로드 실패';
@@ -112,7 +129,7 @@ function programLink(raw){
  try{const url=new URL(String(raw||''));if(!['http:','https:'].includes(url.protocol))return esc(raw||'');return `<a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>`;}catch(_){return esc(raw||'')}
 }
 function render(){const row=current();if(!row){$('#counter').textContent='표시할 카드 없음';return}const p=row.program,r=row.recommendation;$('#counter').textContent=`${state.index+1} / ${state.view.length} · 전체 ${state.rows.length} · 미입력 ${state.rows.filter(x=>missingDefs(x.recommendation).length).length}`;$('#title').textContent=p.displayTitle||p.title;$('#meta').textContent=`${p.tid} · ${priceText(p,{...r,priceCrawled:crawledPrice(p)})} · ${p.craftField||''} · 난이도 ${r.precisionLevel||p.difficultyStars||'-'} / 5`;$('#sourceInfo').innerHTML=`원본 제목: ${esc(p.title)}<br>카테고리: ${esc((p.sourceCategories||[]).join(' / '))}<br>기존 태그: ${esc((p.recommendationTags||[]).join(' · '))}<br>URL: ${programLink(p.detailUrl)}`;setImage(p);renderFields(r);state.active=Math.min(state.active,defs.length-1);const mi=defs.findIndex(d=>d.required&&isMissingValue(r[d.key],d));focusField(mi>=0?mi:state.active,false)}
-function renderFields(rec){const box=$('#fields');box.innerHTML=defs.map((d,i)=>fieldHTML(d,rec,i)).join('');box.querySelectorAll('.field').forEach((el,i)=>{el.addEventListener('click',event=>{if(event.target.closest('input, textarea, select, button, a, [contenteditable]'))return;focusField(i);});});bindControls(rec);bindPriceReset(rec);bindCraftAdd(rec);bindMaterialAdd(rec)}
+function renderFields(rec){const box=$('#fields');box.innerHTML=defs.map((d,i)=>fieldHTML(d,rec,i)).join('');box.querySelectorAll('.field').forEach((el,i)=>{el.addEventListener('mouseenter',()=>focusField(i,false,false));el.addEventListener('click',event=>{if(event.target.closest('input, textarea, select, button, a, [contenteditable]'))return;focusField(i);});});bindControls(rec);bindPriceReset(rec);bindCraftAdd(rec);bindMaterialAdd(rec)}
 function fieldHTML(d,r,i){const s=d.key==='priceOverride'?(moneyNumber(r.priceOverride)!==null?'manual':crawledPrice(current().program)!==null?'crawled':'missing'):d.key==='girlsOnly'?(typeof r.girlsOnly==='boolean'?sourceOf(r,d):'default'):sourceOf(r,d),v=d.key==='priceOverride'?(moneyNumber(r.priceOverride)??crawledPrice(current().program)):d.key==='girlsOnly'?girlsOnly(current().program,r):d.key==='ageBand'&&['4세 이하','5~7세','8~13세','5~13세','전체연령'].includes(r[d.key])?'5세 이상':r[d.key];let ctl='';
  if(d.type==='number')ctl=`<input data-key="${d.key}" type="number" min="0" ${d.key==='priceOverride'?'step="1" placeholder="가격 미확인"':''} value="${esc(v??'')}"><span>${d.unit||''}</span>`;
  else if(d.type==='text')ctl=`<input data-key="${d.key}" type="text" value="${esc(v??'')}">`;
@@ -168,7 +185,7 @@ function prepareRecommendation(p,r){
 window.KCEM_CRAFT_META={prepareRecommendation};
 function save(show=true,targetRow=null){
  clearTimeout(timer);const row=targetRow||current();if(!row)return Promise.resolve(true);
- const tid=row.program.tid;
+ const tid=row.program.tid,progressField=row===current()?defs[state.active]?.key:null;
  saveChain=saveChain.catch(()=>false).then(async()=>{
   // Snapshot when this queued request starts, not while older requests run.
   const sentVersion=version(row);
@@ -179,6 +196,7 @@ function save(show=true,targetRow=null){
    if(!d.saved || d.saved.tid!==tid || Object.keys(snapshot).filter(k=>k!=='updatedAt').some(k=>JSON.stringify(d.saved[k])!==JSON.stringify(snapshot[k])))throw new Error('저장 응답과 입력값이 다릅니다. 입력 내용은 유지됩니다.');
    state.revision=d.revision;
    savedVersions.set(row,Math.max(savedVersions.get(row)||0,sentVersion));
+   if(progressField)rememberProgress(tid,progressField);
    if(version(row)===sentVersion){
     // Do NOT replace row.recommendation: existing controls reference it.
     Object.assign(row.recommendation,d.saved);
@@ -192,7 +210,7 @@ function save(show=true,targetRow=null){
  return saveChain;
 }
 function paintOptionCursor(){document.querySelectorAll('.choice.kbd').forEach(e=>e.classList.remove('kbd'));const d=defs[state.active];if(!d||!['tags','choice','bool'].includes(d.type))return;const el=document.querySelector(`.field[data-i="${state.active}"]`);const bs=[...(el?.querySelectorAll('.choice')||[])];if(!bs.length)return;let ix=state.optionCursor[d.key]??0;ix=Math.max(0,Math.min(bs.length-1,ix));state.optionCursor[d.key]=ix;bs[ix].classList.add('kbd')}
-function focusField(i,focus=true){state.active=Math.max(0,Math.min(defs.length-1,i));document.querySelectorAll('.field').forEach((e,n)=>e.classList.toggle('active',n===state.active));const el=document.querySelector(`.field[data-i="${state.active}"]`);if(focus){const inp=el?.querySelector('input, textarea');(inp||el)?.focus({preventScroll:true})}paintOptionCursor();el?.scrollIntoView({block:'nearest'})}
+function focusField(i,focus=true,scroll=true){state.active=Math.max(0,Math.min(defs.length-1,i));document.querySelectorAll('.field').forEach((e,n)=>e.classList.toggle('active',n===state.active));const el=document.querySelector(`.field[data-i="${state.active}"]`);if(focus){const inp=el?.querySelector('input, textarea');(inp||el)?.focus({preventScroll:true})}paintOptionCursor();if(scroll)el?.scrollIntoView({block:'nearest'})}
 function nextMissing(){const rec=current().recommendation;for(let k=1;k<=defs.length;k++){const i=(state.active+k)%defs.length,d=defs[i];if(d.required&&isMissingValue(rec[d.key],d)){focusField(i);return true}}setSave(`현재 카드 필수값 완료 · Ctrl+Enter 다음 카드`);return false}
 let navigating=false;
 async function moveCard(delta){
