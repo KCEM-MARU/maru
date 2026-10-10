@@ -64,8 +64,9 @@
   const body=JSON.parse(opt?.body||'{}');
   if(path.endsWith('/save'))return enqueue(async()=>{
    const next=structuredClone(snapshot),row=next.records.find(x=>x.program.tid===body.tid);if(!row)throw new Error('TID 없음');
-   Object.assign(row.recommendation,body.recommendation,{tid:body.tid,updatedAt:new Date().toISOString()});
-   if(next.master){next.master.records ||= {};next.master.records[body.tid]=structuredClone(row.recommendation);}
+   const rec=window.KCEM_CRAFT_META?window.KCEM_CRAFT_META.prepareRecommendation(row.program,body.recommendation):body.recommendation;
+   Object.assign(row.recommendation,rec,{tid:body.tid,updatedAt:new Date().toISOString()});
+   if(next.master){next.master.records ||= {};next.master.records[body.tid]={...next.master.records[body.tid],...structuredClone(row.recommendation)};}
    await commit(next);return {ok:true,revision,saved:row.recommendation};
   });
   if(path.endsWith('/material'))return enqueue(async()=>{
@@ -79,7 +80,7 @@
  $('signIn').onclick=async()=>{try{
   $('loginStatus').textContent='로그인 중...';const auth=await request('/auth/v1/token?grant_type=password',{email:$('email').value,password:$('password').value});if(snapshot&&userId&&auth.user?.id!==userId)throw new Error('편집 중인 계정으로 다시 로그인해주세요.');setSession(auth);$('password').value='';
   if(!snapshot)await load();$('login').hidden=true;$('app').hidden=false;
-  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js?v=83';script.dataset.editor='1';document.body.append(script);}else if(window.KCEM_EDITOR_SAVE_PENDING){await window.KCEM_EDITOR_SAVE_PENDING();}
+  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js?v=84';script.dataset.editor='1';document.body.append(script);}else if(window.KCEM_EDITOR_SAVE_PENDING){await window.KCEM_EDITOR_SAVE_PENDING();}
  }catch(e){$('loginStatus').textContent=e.message;}};
  $('signOut').onclick=()=>location.reload();
  $('importFile').onchange=async()=>{try{
@@ -88,5 +89,15 @@
   if(snapshot?.records?.length)throw new Error('이미 이관된 DB는 덮어쓸 수 없습니다. 웹 에디터에서 수정하세요.');
   next.materials ||= next.master?.materials||{};await enqueue(()=>commit(next));alert('이관 완료. 다시 로그인하면 목록이 표시됩니다.');
  }catch(e){alert(e.message);}};
- $('publish').onclick=async()=>{try{await enqueue(()=>request('/rest/v1/rpc/kcem_craft_publish',{expected_revision:revision}));alert('게시 완료. 키오스크 시작 또는 수동 동기화 시 반영됩니다.');}catch(e){alert(e.message);}};
+ $('publish').onclick=async()=>{try{
+  if(window.KCEM_EDITOR_SAVE_PENDING && !await window.KCEM_EDITOR_SAVE_PENDING())throw new Error('저장에 실패한 입력이 있습니다. 저장 완료 후 다시 게시하세요.');
+  await enqueue(async()=>{
+   if(window.KCEM_CRAFT_META){
+    const next=structuredClone(snapshot);
+    for(const row of next.records){row.recommendation=window.KCEM_CRAFT_META.prepareRecommendation(row.program,row.recommendation);if(next.master){next.master.records ||= {};next.master.records[row.program.tid]={...next.master.records[row.program.tid],...structuredClone(row.recommendation)};}}
+    if(JSON.stringify(next)!==JSON.stringify(snapshot))await commit(next);
+   }
+   return request('/rest/v1/rpc/kcem_craft_publish',{expected_revision:revision});
+  });alert('게시 완료. 키오스크 시작 또는 수동 동기화 시 반영됩니다.');}catch(e){alert(e.message);}};
 })();
+
