@@ -81,7 +81,7 @@
  $('signIn').onclick=async()=>{try{
   $('loginStatus').textContent='로그인 중...';const auth=await request('/auth/v1/token?grant_type=password',{email:$('email').value,password:$('password').value});if(snapshot&&userId&&auth.user?.id!==userId)throw new Error('편집 중인 계정으로 다시 로그인해주세요.');setSession(auth);$('password').value='';
   if(!snapshot)await load();$('login').hidden=true;$('app').hidden=false;
-  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js?v=86';script.dataset.editor='1';document.body.append(script);}else if(window.KCEM_EDITOR_SAVE_PENDING){await window.KCEM_EDITOR_SAVE_PENDING();}
+  if(!document.querySelector('script[data-editor]')){const script=document.createElement('script');script.src='editor.js?v=91';script.dataset.editor='1';document.body.append(script);}else if(window.KCEM_EDITOR_SAVE_PENDING){await window.KCEM_EDITOR_SAVE_PENDING();}
  }catch(e){$('loginStatus').textContent=e.message;}};
  $('signOut').onclick=()=>location.reload();
  $('importFile').onchange=async()=>{try{
@@ -101,4 +101,5 @@
    return request('/rest/v1/rpc/kcem_craft_publish',{expected_revision:revision});
   });alert('게시 완료. 키오스크 시작 또는 수동 동기화 시 반영됩니다.');}catch(e){alert(e.message);}};
 })();
+
 
